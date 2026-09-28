@@ -1,113 +1,110 @@
-# Take-Home Assignment — The Untested API
+# Bug Report
 
-A 2-day take-home assignment. You'll read unfamiliar code, write tests, track down bugs, and ship a small feature.
+## 1. Bug Fix: Pagination skips the first page
 
-Read **[ASSIGNMENT.md](./ASSIGNMENT.md)** for the full brief before you start.
+**Location:** `src/services/taskService.js`
+
+### Problem
+
+`getPaginated(1, 10)` should return tasks 1–10, but it returned the 11th task onward.
+
+The original code used `page * limit` as the offset:
+
+```js
+const offset = page * limit; // page 1 → offset 10 (skips the first 10 tasks)
+```
+
+Arrays are zero-indexed, so page 1 needs an offset of 0.
+
+### How I Found It
+
+A unit test with 11 tasks called `getPaginated(1, 10)`. It returned 1 task (the 11th) instead of 10.
+
+### Fix
+
+```js
+const offset = (page - 1) * limit;
+```
+
+| Page | Offset | Tasks |
+|------|--------|-------|
+| 1    | 0      | 1–10  |
+| 2    | 10     | 11–20 |
+| 3    | 20     | 21–30 |
+
+### Verification
+
+```text
+Test Suites: 2 passed, 2 total
+Tests:       35 passed, 35 total
+```
+
+| Statements | Branches | Functions | Lines  |
+|------------|----------|-----------|--------|
+| 93.05%     |  82.66%      |  93.1%     | 92.42% |
 
 ---
 
-## A note on AI tools
+## 2. New Feature: Assign Task
 
-You're welcome to use AI tools. What we're evaluating is your ability to read and reason about unfamiliar code — so your submission should reflect your own understanding, not just generated output.
+**Endpoint:** `PATCH /tasks/:id/assign`
 
-Concretely:
-- For each bug you report: include where in the code it lives and why it happens
-- For the feature you implement: briefly explain the design decisions you made
-- If something surprised you or you had to make a tradeoff, say so
-
----
-
-## Getting Started
-
-**Prerequisites:** Node.js 18+
-
-```bash
-cd task-api
-npm install
-npm start        # runs on http://localhost:3000
-```
-
-**Tests:**
-
-```bash
-npm test           # run test suite
-npm run coverage   # run with coverage report
-```
-
----
-
-## Project Structure
-
-```
-task-api/
-  src/
-    app.js                  # Express app setup
-    routes/tasks.js         # Route handlers
-    services/taskService.js # Business logic + in-memory data store
-    utils/validators.js     # Input validation helpers
-  tests/                    # Your tests go here
-  package.json
-  jest.config.js
-ASSIGNMENT.md               # Full brief — read this first
-```
-
-> The data store is in-memory. It resets every time the server restarts.
-
----
-
-## API Reference
-
-| Method   | Path                      | Description                              |
-|----------|---------------------------|------------------------------------------|
-| `GET`    | `/tasks`                  | List all tasks. Supports `?status=`, `?page=`, `?limit=` |
-| `POST`   | `/tasks`                  | Create a new task                        |
-| `PUT`    | `/tasks/:id`              | Full update of a task                    |
-| `DELETE` | `/tasks/:id`              | Delete a task (returns 204)              |
-| `PATCH`  | `/tasks/:id/complete`     | Mark a task as complete                  |
-| `GET`    | `/tasks/stats`            | Counts by status + overdue count         |
-| `PATCH`  | `/tasks/:id/assign`       | **Assign a task to a user** _(to implement)_ |
-
-### Task shape
+**Request body:**
 
 ```json
-{
-  "id": "uuid",
-  "title": "string",
-  "description": "string",
-  "status": "pending | in-progress | completed",
-  "priority": "low | medium | high",
-  "dueDate": "ISO 8601 or null",
-  "completedAt": "ISO 8601 or null",
-  "createdAt": "ISO 8601"
-}
+{ "assignee": "Vishal" }
 ```
 
-### Sample requests
+### Implementation
 
-**Create a task**
-```bash
-curl -X POST http://localhost:3000/tasks \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Write tests", "priority": "high"}'
+```js
+router.patch('/:id/assign', (req, res) => {
+  const error = validateAssignTask(req.body);
+  if (error) return res.status(400).json({ error });
+
+  const task = taskService.update(req.params.id, {
+    assignee: req.body.assignee.trim(),
+  });
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+
+  res.json(task);
+});
 ```
 
-**List tasks with filter**
-```bash
-curl "http://localhost:3000/tasks?status=pending&page=1&limit=10"
-```
+### Behavior
 
-**Mark complete**
-```bash
-curl -X PATCH http://localhost:3000/tasks/<id>/complete
-```
+- Returns `400` for a missing, empty, whitespace-only, or non-string `assignee`
+- Returns `404` if the task does not exist
+- Reassigning an already assigned task is allowed
+
+### Design Decision
+
+I reused `taskService.update()` instead of adding a new service method, since assigning only sets the `assignee` field. Validation stays in the validator layer and task modification stays in the service layer.
 
 ---
 
-## What to Submit
+## 3. Tests Added
 
-See [ASSIGNMENT.md](./ASSIGNMENT.md) for full submission requirements. At minimum, include:
+- Successful assignment
+- Empty assignee
+- Whitespace-only assignee
+- Invalid assignee type
+- Non-existent task
+- Reassignment
 
-- **Test files** — covering the endpoints and edge cases you identified
-- **Bug report** — what you found, where in the code, and why it's a bug (not just symptoms)
-- **At least one fix** — with a note on your approach
-- **`PATCH /tasks/:id/assign` implementation** — plus a short explanation of any design decisions (validation, edge cases, etc.)
+Existing service and API tests were kept.
+
+```text
+Tests: 35 passed, 35 total
+```
+
+Coverage remains above the 80% target.
+
+---
+
+## 4. Additional Validation Improvements
+
+- Title required on create, optional on update
+- Invalid `status`, `priority`, and due date values
+- Invalid request body types
+- Invalid `assignee` values
