@@ -1,5 +1,3 @@
-# Bug Report
-
 ## 1. Bug Fix: Pagination skips the first page
 
 **Location:** `src/services/taskService.js`
